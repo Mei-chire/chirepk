@@ -1,4 +1,4 @@
-package main
+package domain
 
 import "time"
 
@@ -80,20 +80,36 @@ type ValidationReport struct {
 	CountMismatches    int      `json:"countMismatches"`
 	DoubleBlockErrors  int      `json:"doubleBlockErrors"`
 	AfterServiceErrors int      `json:"afterServiceErrors"`
+	DistributionErrors int      `json:"distributionErrors"`
 	Messages           []string `json:"messages"`
 }
 
+type SchedulePosition struct {
+	Day    int `json:"day"`
+	Period int `json:"period"`
+}
+
+type ScheduleAdjustment struct {
+	ID        string             `json:"id"`
+	AppliedAt time.Time          `json:"appliedAt"`
+	ClassID   string             `json:"classId"`
+	Source    []SchedulePosition `json:"source"`
+	Target    []SchedulePosition `json:"target"`
+}
+
 type ScheduleRun struct {
-	ID         string           `json:"id"`
-	Name       string           `json:"name"`
-	CreatedAt  time.Time        `json:"createdAt"`
-	FinishedAt *time.Time       `json:"finishedAt,omitempty"`
-	Status     string           `json:"status"`
-	Progress   int              `json:"progress"`
-	Message    string           `json:"message"`
-	Config     Config           `json:"config"`
-	Schedules  []ClassSchedule  `json:"schedules,omitempty"`
-	Validation ValidationReport `json:"validation"`
+	ID          string               `json:"id"`
+	Name        string               `json:"name"`
+	CreatedAt   time.Time            `json:"createdAt"`
+	FinishedAt  *time.Time           `json:"finishedAt,omitempty"`
+	Status      string               `json:"status"`
+	Progress    int                  `json:"progress"`
+	Message     string               `json:"message"`
+	Config      Config               `json:"config"`
+	Schedules   []ClassSchedule      `json:"schedules,omitempty"`
+	Validation  ValidationReport     `json:"validation"`
+	Revision    int                  `json:"revision"`
+	Adjustments []ScheduleAdjustment `json:"adjustments,omitempty"`
 }
 
 type TeacherStat struct {

@@ -1,4 +1,4 @@
-package main
+package scheduler
 
 import (
 	"context"
@@ -156,16 +156,6 @@ func GenerateSchedule(ctx context.Context, config Config, progress progressFn) (
 	return nil, ValidationReport{}, errors.New("当前条件较紧，未能在本次计算中找到无冲突方案，请稍后重试")
 }
 
-func schedulableSlots(config Config) []TimeSlot {
-	var slots []TimeSlot
-	for _, slot := range config.TimeSlots {
-		if slot.Schedulable {
-			slots = append(slots, slot)
-		}
-	}
-	return slots
-}
-
 func validateForScheduling(config Config, slots []TimeSlot) error {
 	if err := validateConfigShape(config); err != nil {
 		return err
@@ -206,64 +196,73 @@ func generateCandidate(config Config, class ClassConfig, slots []TimeSlot, rng *
 	totalPositions := len(config.Days) * periods
 	cells := make([]ScheduleCell, totalPositions)
 	occupied := make([]bool, totalPositions)
-
-	var doubleSubjects []string
-	var singleSubjects []string
+	plans, afterByDay, err := balancedDayPlan(config, class, slots, rng)
+	if err != nil {
+		return scheduleCandidate{}, err
+	}
 	teachers := make(map[string]string)
 	for _, assignment := range class.Assignments {
 		teachers[assignment.SubjectID] = assignment.Teacher
-		for i := 0; i < assignment.DoubleBlocks; i++ {
-			doubleSubjects = append(doubleSubjects, assignment.SubjectID)
-		}
-		remainingSingles := assignment.SingleLessons - afterServiceQuota[assignment.SubjectID]
-		for i := 0; i < remainingSingles; i++ {
-			singleSubjects = append(singleSubjects, assignment.SubjectID)
-		}
 	}
-
+	blockNumber := 0
 	allowed := allowedDoublePairs(config, slots)
-	pairs, ok := selectPairs(allowed, len(doubleSubjects), rng)
-	if !ok {
-		return scheduleCandidate{}, errors.New(class.Name + " 无法放置全部连堂课")
-	}
-	rng.Shuffle(len(doubleSubjects), func(i, j int) { doubleSubjects[i], doubleSubjects[j] = doubleSubjects[j], doubleSubjects[i] })
-	for i, pair := range pairs {
-		subjectID := doubleSubjects[i]
-		blockID := class.ID + "-" + strconv.Itoa(i+1)
-		for _, position := range []int{pair.first, pair.second} {
-			day, period := position/periods, position%periods
-			cells[position] = ScheduleCell{Day: day, Period: period, SlotID: slots[period].ID, SubjectID: subjectID, Teacher: teachers[subjectID], ClassID: class.ID, IsDouble: true, BlockID: blockID}
-			occupied[position] = true
-		}
-	}
-
-	afterSubjects := make([]string, 0, len(config.Days))
-	for subjectID, count := range afterServiceQuota {
-		for i := 0; i < count; i++ {
-			afterSubjects = append(afterSubjects, subjectID)
-		}
-	}
-	rng.Shuffle(len(afterSubjects), func(i, j int) { afterSubjects[i], afterSubjects[j] = afterSubjects[j], afterSubjects[i] })
-	for day, subjectID := range afterSubjects {
+	for day, subjectID := range afterByDay {
 		position := day*periods + periods - 1
 		cells[position] = ScheduleCell{Day: day, Period: periods - 1, SlotID: slots[periods-1].ID, SubjectID: subjectID, Teacher: teachers[subjectID], ClassID: class.ID}
 		occupied[position] = true
 	}
-
-	open := make([]int, 0, len(singleSubjects))
-	for position := 0; position < totalPositions; position++ {
-		if !occupied[position] {
-			open = append(open, position)
+	for day := range config.Days {
+		var doubleSubjects []string
+		var singleSubjects []string
+		for subjectID, plan := range plans {
+			for count := 0; count < plan.Blocks[day]; count++ {
+				doubleSubjects = append(doubleSubjects, subjectID)
+			}
+			singles := plan.Singles[day]
+			if afterByDay[day] == subjectID {
+				singles--
+			}
+			for count := 0; count < singles; count++ {
+				singleSubjects = append(singleSubjects, subjectID)
+			}
 		}
-	}
-	if len(open) != len(singleSubjects) {
-		return scheduleCandidate{}, fmt.Errorf("%s 的课时结构与可排时段不匹配", class.Name)
-	}
-	rng.Shuffle(len(singleSubjects), func(i, j int) { singleSubjects[i], singleSubjects[j] = singleSubjects[j], singleSubjects[i] })
-	for i, position := range open {
-		subjectID := singleSubjects[i]
-		day, period := position/periods, position%periods
-		cells[position] = ScheduleCell{Day: day, Period: period, SlotID: slots[period].ID, SubjectID: subjectID, Teacher: teachers[subjectID], ClassID: class.ID}
+		dayAllowed := make([]slotPair, 0, len(allowed)/len(config.Days))
+		for _, pair := range allowed {
+			if pair.first/periods == day {
+				dayAllowed = append(dayAllowed, pair)
+			}
+		}
+		pairs, ok := selectPairs(dayAllowed, len(doubleSubjects), rng)
+		if !ok {
+			return scheduleCandidate{}, errors.New(class.Name + " 无法均匀放置全部连堂课")
+		}
+		rng.Shuffle(len(doubleSubjects), func(i, j int) { doubleSubjects[i], doubleSubjects[j] = doubleSubjects[j], doubleSubjects[i] })
+		for index, pair := range pairs {
+			subjectID := doubleSubjects[index]
+			blockNumber++
+			blockID := class.ID + "-" + strconv.Itoa(blockNumber)
+			for _, position := range []int{pair.first, pair.second} {
+				period := position % periods
+				cells[position] = ScheduleCell{Day: day, Period: period, SlotID: slots[period].ID, SubjectID: subjectID, Teacher: teachers[subjectID], ClassID: class.ID, IsDouble: true, BlockID: blockID}
+				occupied[position] = true
+			}
+		}
+		open := make([]int, 0, len(singleSubjects))
+		for period := 0; period < periods; period++ {
+			position := day*periods + period
+			if !occupied[position] {
+				open = append(open, position)
+			}
+		}
+		if len(open) != len(singleSubjects) {
+			return scheduleCandidate{}, fmt.Errorf("%s 的星期分布与可排时段不匹配", class.Name)
+		}
+		rng.Shuffle(len(singleSubjects), func(i, j int) { singleSubjects[i], singleSubjects[j] = singleSubjects[j], singleSubjects[i] })
+		for index, position := range open {
+			subjectID := singleSubjects[index]
+			period := position % periods
+			cells[position] = ScheduleCell{Day: day, Period: period, SlotID: slots[period].ID, SubjectID: subjectID, Teacher: teachers[subjectID], ClassID: class.ID}
+		}
 	}
 
 	candidate := scheduleCandidate{cells: cells}
@@ -369,34 +368,49 @@ func isMorning(slot TimeSlot) bool {
 	return hour < 12
 }
 
-func subjectName(config Config, id string) string {
-	for _, subject := range config.Subjects {
-		if subject.ID == id {
-			return subject.Name
-		}
-	}
-	return id
-}
-
 func ValidateSchedule(config Config, schedules []ClassSchedule) ValidationReport {
 	report := ValidationReport{Passed: true}
 	slots := schedulableSlots(config)
 	periods := len(slots)
 	teacherUse := make(map[string]ScheduleCell)
 	classByID := make(map[string]ClassConfig)
+	seenClasses := make(map[string]bool)
 	for _, class := range config.Classes {
 		classByID[class.ID] = class
 	}
 	for _, schedule := range schedules {
 		class, ok := classByID[schedule.ClassID]
-		if !ok {
+		if !ok || seenClasses[schedule.ClassID] {
 			report.CountMismatches++
 			continue
+		}
+		seenClasses[schedule.ClassID] = true
+		assignments := make(map[string]CourseAssignment)
+		for _, assignment := range class.Assignments {
+			assignments[assignment.SubjectID] = assignment
 		}
 		counts := make(map[string]int)
 		blocks := make(map[string][]ScheduleCell)
 		afterCounts := make(map[string]int)
+		positions := make(map[string]bool)
 		for _, cell := range schedule.Cells {
+			if cell.Day < 0 || cell.Day >= len(config.Days) || cell.Period < 0 || cell.Period >= periods {
+				report.CountMismatches++
+				continue
+			}
+			positionKey := strconv.Itoa(cell.Day) + ":" + strconv.Itoa(cell.Period)
+			if positions[positionKey] {
+				report.CountMismatches++
+			} else {
+				positions[positionKey] = true
+			}
+			assignment, assigned := assignments[cell.SubjectID]
+			if !assigned || cell.ClassID != schedule.ClassID || cell.SlotID != slots[cell.Period].ID || cell.Teacher != assignment.Teacher {
+				report.CountMismatches++
+			}
+			if (cell.BlockID == "") == cell.IsDouble {
+				report.DoubleBlockErrors++
+			}
 			counts[cell.SubjectID]++
 			if cell.BlockID != "" {
 				blocks[cell.BlockID] = append(blocks[cell.BlockID], cell)
@@ -435,26 +449,34 @@ func ValidateSchedule(config Config, schedules []ClassSchedule) ValidationReport
 			if isMorning(slots[blockCells[0].Period]) != isMorning(slots[blockCells[1].Period]) {
 				report.DoubleBlockErrors++
 			}
+			if blockCells[0].SubjectID != blockCells[1].SubjectID || blockCells[0].Teacher != blockCells[1].Teacher || !blockCells[0].IsDouble || !blockCells[1].IsDouble {
+				report.DoubleBlockErrors++
+			}
 		}
 		for subjectID, expected := range afterServiceQuota {
 			if afterCounts[subjectID] != expected {
 				report.AfterServiceErrors++
 			}
 		}
-		if len(schedule.Cells) != len(config.Days)*periods {
+		if len(schedule.Cells) != len(config.Days)*periods || len(positions) != len(config.Days)*periods {
 			report.CountMismatches++
 		}
+		report.DistributionErrors += courseDistributionErrors(config, class, schedule)
 	}
-	report.Passed = report.TeacherConflicts == 0 && report.CountMismatches == 0 && report.DoubleBlockErrors == 0 && report.AfterServiceErrors == 0 && len(schedules) == len(config.Classes)
+	if len(seenClasses) != len(config.Classes) {
+		report.CountMismatches++
+	}
+	report.Passed = report.TeacherConflicts == 0 && report.CountMismatches == 0 && report.DoubleBlockErrors == 0 && report.AfterServiceErrors == 0 && report.DistributionErrors == 0 && len(schedules) == len(config.Classes)
 	if report.Passed {
 		report.Messages = []string{
 			"教师时间冲突 0 项",
 			"班级课时数量全部匹配",
 			"连堂课均位于同一半天",
 			"第九节专项课时全部匹配",
+			"各课程在五个教学日均匀分布",
 		}
 	} else {
-		report.Messages = []string{fmt.Sprintf("教师冲突 %d，课时错误 %d，连堂错误 %d，第九节错误 %d", report.TeacherConflicts, report.CountMismatches, report.DoubleBlockErrors, report.AfterServiceErrors)}
+		report.Messages = []string{fmt.Sprintf("教师冲突 %d，课时错误 %d，连堂错误 %d，第九节错误 %d，分布错误 %d", report.TeacherConflicts, report.CountMismatches, report.DoubleBlockErrors, report.AfterServiceErrors, report.DistributionErrors)}
 	}
 	return report
 }

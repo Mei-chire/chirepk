@@ -42,7 +42,7 @@ func TestBuildScheduleWorkbookContainsAllClassSheets(t *testing.T) {
 		t.Fatalf("worksheet count = %d, want %d", got, want)
 	}
 	workbook := entries["xl/workbook.xml"]
-	if !strings.Contains(workbook, `name="汇总"`) || !strings.Contains(workbook, `name="801班"`) || !strings.Contains(workbook, `name="821班"`) {
+	if !strings.Contains(workbook, `name="汇总"`) || !strings.Contains(workbook, `name="示例班级 01"`) || !strings.Contains(workbook, `name="示例班级 21"`) {
 		t.Fatalf("workbook does not list expected sheets: %s", workbook)
 	}
 	if !strings.Contains(entries["xl/worksheets/sheet2.xml"], "测试课表") {

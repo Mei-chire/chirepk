@@ -1,17 +1,18 @@
 package main
 
 import (
-	"embed"
 	"flag"
 	"io/fs"
 	"log"
 	"net/http"
 	"os"
 	"time"
-)
 
-//go:embed static
-var staticFiles embed.FS
+	"chirepk/backend/internal/application"
+	"chirepk/backend/internal/store"
+	httpapi "chirepk/backend/internal/transport/http"
+	"chirepk/frontend"
+)
 
 func main() {
 	defaultAddress := ":8080"
@@ -21,11 +22,12 @@ func main() {
 	address := flag.String("addr", defaultAddress, "HTTP listen address")
 	flag.Parse()
 
-	store := NewMemoryStore()
-	api := NewAPI(store)
+	storage := store.NewMemoryStore()
+	service := application.NewService(storage)
+	api := httpapi.NewAPI(service)
 	mux := http.NewServeMux()
 	api.Register(mux)
-	assets, err := fs.Sub(staticFiles, "static")
+	assets, err := fs.Sub(frontend.Files, "static")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -33,18 +35,10 @@ func main() {
 
 	server := &http.Server{
 		Addr:              *address,
-		Handler:           requestLogger(mux),
+		Handler:           httpapi.RequestLogger(log.Default(), mux),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
 	log.Printf("chirepk is running at http://localhost%s", *address)
 	log.Fatal(server.ListenAndServe())
-}
-
-func requestLogger(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		started := time.Now()
-		next.ServeHTTP(w, r)
-		log.Printf("%s %s %s", r.Method, r.URL.Path, time.Since(started).Round(time.Millisecond))
-	})
 }

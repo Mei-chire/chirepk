@@ -1,4 +1,4 @@
-package main
+package xlsx
 
 import (
 	"archive/zip"

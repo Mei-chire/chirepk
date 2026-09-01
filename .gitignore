@@ -1,3 +1,9 @@
 outputs/
+.codex_tmp/
+bin/
+coverage.out
+*.test
+/chirepk
+/chirepk.exe
 .DS_Store
 

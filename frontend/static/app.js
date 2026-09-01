@@ -11,6 +11,8 @@ const state = {
   queryTeacher: "",
   runDetails: new Map(),
   pollTimer: null,
+  adjustmentData: null,
+  selectedAdjustmentIndex: -1,
 };
 
 const viewMeta = {
@@ -546,11 +548,170 @@ function renderSchedule(run) {
   $("#scheduleBody").innerHTML = slots.map((slot, period) => `<tr><td><div class="period-label"><strong>${escapeHTML(slot.name)}</strong><span>${slot.start}–${slot.end}</span></div></td>${config.days.map((_, day) => {
     const cell = cells.get(`${day}-${period}`);
     const subject = subjectById(cell.subjectId, config);
-    return `<td><div class="lesson-chip" style="--subject-color:${subject.color}"><strong>${escapeHTML(subject.name)}</strong><span>${escapeHTML(cell.teacher)}</span>${cell.isDouble ? `<em class="double-label">连堂</em>` : ""}</div></td>`;
+    return `<td><button type="button" class="lesson-chip" data-action="adjust-course" data-day="${day}" data-period="${period}" style="--subject-color:${subject.color}" aria-label="调整${escapeHTML(config.days[day])}${escapeHTML(slot.name)}${escapeHTML(subject.name)}"><strong>${escapeHTML(subject.name)}</strong><span>${escapeHTML(cell.teacher)}</span>${cell.isDouble ? `<em class="double-label">连堂</em>` : ""}<i class="lesson-edit-icon" data-lucide="replace"></i></button></td>`;
   }).join("")}</tr>`).join("");
   $("#validationStrip").innerHTML = run.validation.messages.map((message) => `<div class="validation-item"><i data-lucide="check"></i>${escapeHTML(message)}</div>`).join("");
   $("#schedulePassBadge").style.display = run.validation.passed ? "inline-flex" : "none";
+  $("#undoScheduleBtn").disabled = !run.adjustments?.length;
   refreshIcons();
+}
+
+function schedulePositionLabel(config, positions) {
+  const slots = config.timeSlots.filter((slot) => slot.schedulable);
+  const first = positions[0];
+  const last = positions.at(-1);
+  if (!first) return "--";
+  const day = config.days[first.day] || `第 ${first.day + 1} 天`;
+  const firstSlot = slots[first.period]?.name || `第 ${first.period + 1} 节`;
+  if (positions.length === 1) return `${day} · ${firstSlot}`;
+  const lastSlot = slots[last.period]?.name || `第 ${last.period + 1} 节`;
+  return `${day} · ${firstSlot}–${lastSlot}`;
+}
+
+function scheduleCellsLabel(config, cells) {
+  const subjects = [...new Set(cells.map((cell) => subjectById(cell.subjectId, config).name))];
+  const teachers = [...new Set(cells.map((cell) => cell.teacher).filter(Boolean))];
+  return { subjects: subjects.join(" / "), teachers: teachers.join(" / ") || "无教师课程" };
+}
+
+function closeAdjustment() {
+  const dialog = $("#adjustmentDialog");
+  if (dialog.open) dialog.close();
+  state.adjustmentData = null;
+  state.selectedAdjustmentIndex = -1;
+}
+
+async function openAdjustment(day, period) {
+  const run = state.runDetails.get(state.currentRunId);
+  if (!run) return;
+  const classConfig = run.config.classes.find((item) => item.id === state.currentScheduleClassId);
+  const schedule = run.schedules.find((item) => item.classId === state.currentScheduleClassId);
+  const cell = schedule?.cells.find((item) => item.day === day && item.period === period);
+  if (!classConfig || !cell) return;
+  const subject = subjectById(cell.subjectId, run.config);
+  const dialog = $("#adjustmentDialog");
+  state.adjustmentData = null;
+  state.selectedAdjustmentIndex = -1;
+  $("#adjustmentTitle").textContent = `调整 ${subject.name}`;
+  $("#adjustmentSubtitle").textContent = classConfig.name;
+  $("#adjustmentCurrent").innerHTML = `<span class="adjustment-current-mark" style="--subject-color:${subject.color}"></span><div><strong>${escapeHTML(subject.name)}${cell.isDouble ? " · 连堂" : ""}</strong><span>${escapeHTML(schedulePositionLabel(run.config, [{ day, period }]))} · ${escapeHTML(cell.teacher || "无教师课程")}</span></div>`;
+  $("#candidateCount").textContent = "";
+  $("#adjustmentCandidates").innerHTML = `<div class="adjustment-loading"><div><i data-lucide="loader-circle"></i><div>正在校验可交换时段</div></div></div>`;
+  $("#adjustmentPreview").classList.add("hidden");
+  $("#adjustmentConfirm").disabled = true;
+  if (!dialog.open) dialog.showModal();
+  refreshIcons();
+  try {
+    const query = new URLSearchParams({ classId: classConfig.id, day: String(day), period: String(period) });
+    state.adjustmentData = await api(`/api/runs/${encodeURIComponent(run.id)}/adjustment-candidates?${query}`);
+    renderAdjustmentCandidates(run);
+  } catch (error) {
+    $("#adjustmentCandidates").innerHTML = `<div class="adjustment-empty">${escapeHTML(error.message)}</div>`;
+    refreshIcons();
+  }
+}
+
+function renderAdjustmentCandidates(run) {
+  const data = state.adjustmentData;
+  if (!data) return;
+  const source = scheduleCellsLabel(run.config, data.sourceCells);
+  const sourceSubject = subjectById(data.sourceCells[0]?.subjectId, run.config);
+  const isDouble = data.sourceCells.some((cell) => cell.isDouble);
+  $("#adjustmentCurrent").innerHTML = `<span class="adjustment-current-mark" style="--subject-color:${sourceSubject.color}"></span><div><strong>${escapeHTML(source.subjects)}${isDouble ? " · 连堂" : ""}</strong><span>${escapeHTML(schedulePositionLabel(run.config, data.sourcePositions))} · ${escapeHTML(source.teachers)}</span></div>`;
+  $("#candidateCount").textContent = `${data.candidates.length} 个`;
+  if (!data.candidates.length) {
+    $("#adjustmentCandidates").innerHTML = `<div class="adjustment-empty">当前没有满足全部硬约束的交换方案。</div>`;
+    refreshIcons();
+    return;
+  }
+  $("#adjustmentCandidates").innerHTML = data.candidates.map((candidate, index) => {
+    const target = scheduleCellsLabel(run.config, candidate.targetCells);
+    const selected = index === state.selectedAdjustmentIndex;
+    return `<button type="button" class="candidate-option ${selected ? "selected" : ""}" data-action="select-adjustment" data-candidate-index="${index}" aria-pressed="${selected}"><span class="candidate-option-mark"><i data-lucide="calendar-sync"></i></span><span class="candidate-option-copy"><strong>${escapeHTML(schedulePositionLabel(run.config, candidate.targetPositions))}</strong><small>${escapeHTML(target.subjects)} · ${escapeHTML(target.teachers)}</small></span><span class="candidate-safe"><i data-lucide="shield-check"></i>可交换</span></button>`;
+  }).join("");
+  renderAdjustmentPreview(run);
+  refreshIcons();
+}
+
+function selectAdjustment(index) {
+  const run = state.runDetails.get(state.currentRunId);
+  if (!run || !state.adjustmentData?.candidates[index]) return;
+  state.selectedAdjustmentIndex = index;
+  renderAdjustmentCandidates(run);
+}
+
+function renderAdjustmentPreview(run) {
+  const preview = $("#adjustmentPreview");
+  const candidate = state.adjustmentData?.candidates[state.selectedAdjustmentIndex];
+  if (!candidate) {
+    preview.classList.add("hidden");
+    $("#adjustmentConfirm").disabled = true;
+    return;
+  }
+  const source = scheduleCellsLabel(run.config, state.adjustmentData.sourceCells);
+  const target = scheduleCellsLabel(run.config, candidate.targetCells);
+  preview.innerHTML = `<div class="preview-route"><div><strong>${escapeHTML(source.subjects)}</strong><span>${escapeHTML(schedulePositionLabel(run.config, state.adjustmentData.sourcePositions))}</span></div><i data-lucide="repeat-2"></i><div><strong>${escapeHTML(target.subjects)}</strong><span>${escapeHTML(schedulePositionLabel(run.config, candidate.targetPositions))}</span></div></div><div class="constraint-checks"><span><i data-lucide="check"></i>教师无冲突</span><span><i data-lucide="check"></i>课时数不变</span><span><i data-lucide="check"></i>连堂结构完整</span><span><i data-lucide="check"></i>第九节配额符合</span><span><i data-lucide="check"></i>课程分布均匀</span></div>`;
+  preview.classList.remove("hidden");
+  $("#adjustmentConfirm").disabled = false;
+}
+
+function acceptUpdatedRun(run) {
+  state.runDetails.set(run.id, run);
+  const index = state.runs.findIndex((item) => item.id === run.id);
+  if (index >= 0) {
+    state.runs[index] = { ...state.runs[index], message: run.message, validation: run.validation, revision: run.revision };
+  }
+  renderSchedule(run);
+  renderRuns();
+  renderOverview();
+}
+
+async function applySelectedAdjustment() {
+  const run = state.runDetails.get(state.currentRunId);
+  const data = state.adjustmentData;
+  const candidate = data?.candidates[state.selectedAdjustmentIndex];
+  if (!run || !candidate) return;
+  const button = $("#adjustmentConfirm");
+  button.disabled = true;
+  try {
+    const updated = await api(`/api/runs/${encodeURIComponent(run.id)}/adjustments`, {
+      method: "POST",
+      body: JSON.stringify({
+        classId: state.currentScheduleClassId,
+        source: data.sourcePositions[0],
+        target: candidate.targetPositions[0],
+        expectedRevision: data.revision,
+      }),
+    });
+    closeAdjustment();
+    acceptUpdatedRun(updated);
+    toast("课程已交换，全部硬约束校验通过");
+  } catch (error) {
+    closeAdjustment();
+    state.runDetails.delete(run.id);
+    try {
+      acceptUpdatedRun(await getRunDetail(run.id));
+    } catch (_) {}
+    toast(error.message, "error");
+  }
+}
+
+async function undoLastAdjustment() {
+  const run = state.runDetails.get(state.currentRunId);
+  if (!run?.adjustments?.length) return;
+  if (!await confirmAction("撤销课程调整", "确认撤销最近一次课程交换吗？")) return;
+  const button = $("#undoScheduleBtn");
+  button.disabled = true;
+  try {
+    const updated = await api(`/api/runs/${encodeURIComponent(run.id)}/adjustments/undo`, {
+      method: "POST", body: JSON.stringify({ expectedRevision: run.revision }),
+    });
+    acceptUpdatedRun(updated);
+    toast("最近一次课程调整已撤销");
+  } catch (error) {
+    button.disabled = false;
+    toast(error.message, "error");
+  }
 }
 
 async function exportAllSchedules() {
@@ -696,9 +857,9 @@ async function importXlsxFile(file) {
     const response = await fetch("/api/import/xlsx", { method: "POST", body: form });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.error || ("导入失败 (" + response.status + ")"));
-    state.config = data.config;
-    state.teachers = data.teachers || [];
-    state.preflight = data.preflight || null;
+    [state.config, state.teachers, state.preflight] = await Promise.all([
+      api("/api/config"), api("/api/teachers"), api("/api/preflight"),
+    ]);
     state.runs = [];
     state.runDetails.clear();
     clearTimeout(state.pollTimer);
@@ -713,8 +874,8 @@ async function importXlsxFile(file) {
     renderAssignments();
     renderTeachers();
     renderRuns();
-    navigate("assignments");
-    toast("已导入 " + file.name + "，请完成每日作息和任课设置");
+    navigate("generate");
+    toast("已导入并自动保存 " + file.name + "，可以直接开始排课");
   } catch (error) {
     toast(error.message, "error");
   } finally {
@@ -939,6 +1100,8 @@ function bindEvents() {
     if (action?.dataset.action === "delete-run") deleteRun(action.dataset.runId);
     if (action?.dataset.action === "delete-time") deleteTimeSlot(Number(action.dataset.timeIndex));
     if (action?.dataset.action === "delete-assignment") deleteAssignment(Number(action.dataset.assignmentIndex));
+    if (action?.dataset.action === "adjust-course") openAdjustment(Number(action.dataset.day), Number(action.dataset.period));
+    if (action?.dataset.action === "select-adjustment") selectAdjustment(Number(action.dataset.candidateIndex));
     if (action?.dataset.action === "select-class") {
       state.currentClassId = action.dataset.classId;
       closeClassPicker();
@@ -1053,6 +1216,11 @@ function bindEvents() {
   $("#courseDialog").addEventListener("cancel", (event) => { event.preventDefault(); closeCourseDialog(); });
   $("#courseForm").addEventListener("submit", (event) => { event.preventDefault(); addCourseFromDialog(); });
   $("#exportScheduleBtn").addEventListener("click", exportAllSchedules);
+  $("#undoScheduleBtn").addEventListener("click", undoLastAdjustment);
+  $("#adjustmentClose").addEventListener("click", closeAdjustment);
+  $("#adjustmentCancel").addEventListener("click", closeAdjustment);
+  $("#adjustmentConfirm").addEventListener("click", applySelectedAdjustment);
+  $("#adjustmentDialog").addEventListener("cancel", (event) => { event.preventDefault(); closeAdjustment(); });
   $("#teacherSearch").addEventListener("input", renderTeachers);
 }
 

@@ -26,7 +26,7 @@
         <button class="nav-item" data-view-target="query"><i data-lucide="search-check"></i><span>教师查询</span></button>
       </nav>
       <div class="sidebar-foot">
-        <div class="storage-note"><span class="status-dot"></span><div><strong>内存模式</strong><small>重启后保留作息，任课待导入</small></div></div>
+        <div class="storage-note"><span class="status-dot"></span><div><strong>内存模式</strong><small>重启后清空数据，请重新导入</small></div></div>
       </div>
     </aside>
 
@@ -104,11 +104,12 @@
                 <div class="progress-steps"><span>候选方案</span><span>教师协调</span><span>结果自检</span></div>
               </div>
             </section>
-            <section class="constraint-section"><span class="section-kicker">本次规则</span><h3>四项硬约束</h3><div class="constraint-list">
+            <section class="constraint-section"><span class="section-kicker">本次规则</span><h3>五项硬约束</h3><div class="constraint-list">
               <div><i data-lucide="user-round-check"></i><span><strong>教师不冲突</strong><small>同一时段只能出现在一个班级</small></span></div>
               <div><i data-lucide="panels-top-left"></i><span><strong>连堂在同一半天</strong><small>数学、英语连堂不跨午间</small></span></div>
               <div><i data-lucide="coffee"></i><span><strong>活动时段留空</strong><small>午休、中餐、大课间、眼操不排课</small></span></div>
               <div><i data-lucide="moon-star"></i><span><strong>第九节专项</strong><small>数学 2，语英物各 1</small></span></div>
+              <div><i data-lucide="calendar-range"></i><span><strong>课程均匀分布</strong><small>同科课次平衡到五个教学日</small></span></div>
             </div></section>
           </div>
         </section>
@@ -119,7 +120,7 @@
         </section>
 
         <section class="view" data-view="schedule">
-          <div class="view-heading"><div><button class="back-link" data-view-target="records"><i data-lucide="arrow-left"></i>返回排课记录</button><h2 id="scheduleTitle">课表详情</h2><p id="scheduleMeta"></p></div><div class="heading-actions"><div class="field compact"><span>班级</span><div class="smart-select" id="scheduleClassSelect" data-icon="school" data-placeholder="选择班级" data-search-placeholder="搜索班级或班主任" data-aria-label="选择课表班级"></div></div><button class="secondary-btn" id="exportScheduleBtn" disabled><i data-lucide="file-spreadsheet"></i>导出全部课表</button><span class="pass-badge" id="schedulePassBadge"><i data-lucide="badge-check"></i>自检通过</span></div></div>
+          <div class="view-heading"><div><button class="back-link" data-view-target="records"><i data-lucide="arrow-left"></i>返回排课记录</button><h2 id="scheduleTitle">课表详情</h2><p id="scheduleMeta"></p></div><div class="heading-actions"><div class="field compact"><span>班级</span><div class="smart-select" id="scheduleClassSelect" data-icon="school" data-placeholder="选择班级" data-search-placeholder="搜索班级或班主任" data-aria-label="选择课表班级"></div></div><button class="secondary-btn" id="undoScheduleBtn" disabled title="撤销最近一次调整"><i data-lucide="rotate-ccw"></i>撤销调整</button><button class="secondary-btn" id="exportScheduleBtn" disabled><i data-lucide="file-spreadsheet"></i>导出全部课表</button><span class="pass-badge" id="schedulePassBadge"><i data-lucide="badge-check"></i>自检通过</span></div></div>
           <div class="schedule-scroll"><table class="schedule-table"><thead id="scheduleHead"></thead><tbody id="scheduleBody"></tbody></table></div>
           <div class="validation-strip" id="validationStrip"></div>
         </section>
@@ -143,6 +144,22 @@
       <div class="course-hours"><label class="field"><span>普通课时</span><input id="newCourseSingles" type="number" min="0" max="45" value="0"></label><label class="field"><span>连堂次数</span><input id="newCourseDoubles" type="number" min="0" max="22" value="0"></label></div>
       <div class="dialog-actions"><button type="button" class="secondary-btn" id="courseCancel">取消</button><button type="submit" class="primary-btn">确认新增</button></div>
     </form>
+  </dialog>
+  <dialog class="adjustment-dialog" id="adjustmentDialog">
+    <div class="adjustment-heading">
+      <div><span class="section-kicker">课表微调</span><h3 id="adjustmentTitle">调整课程</h3><p id="adjustmentSubtitle"></p></div>
+      <button class="icon-btn" id="adjustmentClose" type="button" title="关闭"><i data-lucide="x"></i></button>
+    </div>
+    <div class="adjustment-body">
+      <div class="adjustment-current" id="adjustmentCurrent"></div>
+      <div class="adjustment-preview hidden" id="adjustmentPreview"></div>
+      <div class="candidate-heading"><div><strong>可交换时段</strong><span id="candidateCount"></span></div><i data-lucide="shield-check"></i></div>
+      <div class="candidate-list" id="adjustmentCandidates"></div>
+    </div>
+    <div class="adjustment-actions">
+      <button class="secondary-btn" id="adjustmentCancel" type="button">取消</button>
+      <button class="primary-btn" id="adjustmentConfirm" type="button" disabled><i data-lucide="repeat-2"></i>确认交换</button>
+    </div>
   </dialog>
 
   <script src="/vendor/lucide.min.js"></script>

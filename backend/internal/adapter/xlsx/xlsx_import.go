@@ -1,4 +1,4 @@
-package main
+package xlsx
 
 import (
 	"archive/zip"
@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"path"
 	"strconv"
 	"strings"
@@ -67,8 +68,13 @@ type xlsxInlineStr struct {
 	Text []string `xml:"t"`
 }
 
-// importConfigFromXLSX reads the first visible worksheet and maps the fixed
-// course columns used by the school's 任课课时汇总表 into the app's domain model.
+type importedWorksheet struct {
+	Name string
+	Data xlsxWorksheet
+}
+
+// importConfigFromXLSX reads both authoritative setup sheets. The caller only
+// commits the returned configuration after all workbook data has been parsed.
 func importConfigFromXLSX(data []byte) (Config, error) {
 	if len(data) == 0 {
 		return Config{}, errors.New("上传文件为空")
@@ -89,16 +95,6 @@ func importConfigFromXLSX(data []byte) (Config, error) {
 	if err := xml.Unmarshal(workbookBytes, &workbook); err != nil {
 		return Config{}, fmt.Errorf("工作簿格式错误: %w", err)
 	}
-	var selected xlsxSheet
-	for _, sheet := range workbook.Sheets.Items {
-		if sheet.State != "hidden" && sheet.State != "veryHidden" {
-			selected = sheet
-			break
-		}
-	}
-	if selected.RelID == "" {
-		return Config{}, errors.New("XLSX 中没有可读取的工作表")
-	}
 	relsBytes, err := readZipEntry(files, "xl/_rels/workbook.xml.rels")
 	if err != nil {
 		return Config{}, errors.New("XLSX 缺少工作表关系信息")
@@ -107,33 +103,72 @@ func importConfigFromXLSX(data []byte) (Config, error) {
 	if err := xml.Unmarshal(relsBytes, &rels); err != nil {
 		return Config{}, fmt.Errorf("工作表关系格式错误: %w", err)
 	}
-	target := ""
-	for _, relationship := range rels.Items {
-		if relationship.ID == selected.RelID {
-			target = relationship.Target
-			break
-		}
-	}
-	if target == "" {
-		return Config{}, errors.New("找不到第一个工作表")
-	}
-	target = strings.TrimPrefix(target, "/")
-	if !strings.HasPrefix(target, "xl/") {
-		target = path.Join("xl", target)
-	}
-	worksheetBytes, err := readZipEntry(files, target)
-	if err != nil {
-		return Config{}, errors.New("找不到工作表数据")
-	}
 	sharedStrings, err := readSharedStrings(files)
 	if err != nil {
 		return Config{}, err
 	}
-	var worksheet xlsxWorksheet
-	if err := xml.Unmarshal(worksheetBytes, &worksheet); err != nil {
-		return Config{}, fmt.Errorf("工作表格式错误: %w", err)
+	relTargets := make(map[string]string, len(rels.Items))
+	for _, relationship := range rels.Items {
+		relTargets[relationship.ID] = relationship.Target
 	}
-	return configFromWorksheet(worksheet, sharedStrings)
+	worksheets := make([]importedWorksheet, 0, len(workbook.Sheets.Items))
+	for _, sheet := range workbook.Sheets.Items {
+		if sheet.State == "hidden" || sheet.State == "veryHidden" {
+			continue
+		}
+		target := strings.TrimPrefix(relTargets[sheet.RelID], "/")
+		if target == "" {
+			return Config{}, fmt.Errorf("找不到工作表“%s”的关系信息", sheet.Name)
+		}
+		if !strings.HasPrefix(target, "xl/") {
+			target = path.Join("xl", target)
+		}
+		worksheetBytes, err := readZipEntry(files, path.Clean(target))
+		if err != nil {
+			return Config{}, fmt.Errorf("找不到工作表“%s”的数据", sheet.Name)
+		}
+		var worksheet xlsxWorksheet
+		if err := xml.Unmarshal(worksheetBytes, &worksheet); err != nil {
+			return Config{}, fmt.Errorf("工作表“%s”格式错误: %w", sheet.Name, err)
+		}
+		worksheets = append(worksheets, importedWorksheet{Name: sheet.Name, Data: worksheet})
+	}
+	if len(worksheets) == 0 {
+		return Config{}, errors.New("XLSX 中没有可读取的工作表")
+	}
+	dailySheet, ok := findImportedWorksheet(worksheets, "每日作息")
+	if !ok {
+		return Config{}, errors.New("未找到“每日作息”工作表")
+	}
+	assignmentsSheet, ok := findImportedWorksheet(worksheets, "任课", "课时")
+	if !ok {
+		return Config{}, errors.New("未找到“任课课时汇总”工作表")
+	}
+	config, err := configFromAssignmentWorksheet(assignmentsSheet.Data, sharedStrings)
+	if err != nil {
+		return Config{}, fmt.Errorf("任课课时汇总导入失败: %w", err)
+	}
+	config.TimeSlots, err = timeSlotsFromWorksheet(dailySheet.Data, sharedStrings)
+	if err != nil {
+		return Config{}, fmt.Errorf("每日作息导入失败: %w", err)
+	}
+	return config, nil
+}
+
+func findImportedWorksheet(worksheets []importedWorksheet, keywords ...string) (importedWorksheet, bool) {
+	for _, worksheet := range worksheets {
+		matched := true
+		for _, keyword := range keywords {
+			if !strings.Contains(strings.TrimSpace(worksheet.Name), keyword) {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			return worksheet, true
+		}
+	}
+	return importedWorksheet{}, false
 }
 
 func readZipEntry(files map[string]*zip.File, name string) ([]byte, error) {
@@ -170,7 +205,7 @@ func readSharedStrings(files map[string]*zip.File) ([]string, error) {
 	return result, nil
 }
 
-func configFromWorksheet(worksheet xlsxWorksheet, sharedStrings []string) (Config, error) {
+func worksheetRows(worksheet xlsxWorksheet, sharedStrings []string) (map[int]map[int]string, int, error) {
 	rows := make(map[int]map[int]string)
 	maxRow := 0
 	for rowIndex, row := range worksheet.SheetData.Rows {
@@ -189,16 +224,36 @@ func configFromWorksheet(worksheet xlsxWorksheet, sharedStrings []string) (Confi
 			}
 			value, err := xlsxCellValue(cell, sharedStrings)
 			if err != nil {
-				return Config{}, err
+				return nil, 0, err
 			}
 			cells[column] = value
 		}
 		rows[number] = cells
 	}
-	header := rows[2]
-	if len(header) == 0 {
-		return Config{}, errors.New("未找到第 2 行字段标题")
+	return rows, maxRow, nil
+}
+
+func configFromAssignmentWorksheet(worksheet xlsxWorksheet, sharedStrings []string) (Config, error) {
+	rows, maxRow, err := worksheetRows(worksheet, sharedStrings)
+	if err != nil {
+		return Config{}, err
 	}
+	headerRow := 0
+	for rowNumber := 1; rowNumber <= maxRow && rowNumber <= 20; rowNumber++ {
+		for _, value := range rows[rowNumber] {
+			if strings.TrimSpace(value) == "班级" {
+				headerRow = rowNumber
+				break
+			}
+		}
+		if headerRow != 0 {
+			break
+		}
+	}
+	if headerRow == 0 {
+		return Config{}, errors.New("未找到包含“班级”的字段标题行")
+	}
+	header := rows[headerRow]
 	columns := make(map[string][2]int)
 	for column := 0; column < 100; column++ {
 		subjectID := importedSubjectID(header[column])
@@ -218,14 +273,14 @@ func configFromWorksheet(worksheet xlsxWorksheet, sharedStrings []string) (Confi
 	}
 	config := defaultConfig()
 	config.Classes = nil
-	for rowNumber := 3; rowNumber <= maxRow; rowNumber++ {
+	for rowNumber := headerRow + 1; rowNumber <= maxRow; rowNumber++ {
 		values := rows[rowNumber]
 		classID := strings.TrimSpace(values[1])
 		if classID == "" {
 			continue
 		}
 		if _, err := strconv.Atoi(classID); err != nil {
-			// Some spreadsheet writers store a class label as "801班".
+			// Some spreadsheet writers store a class label with a trailing 班.
 			classID = strings.TrimSuffix(classID, "班")
 		}
 		if classID == "" {
@@ -233,7 +288,7 @@ func configFromWorksheet(worksheet xlsxWorksheet, sharedStrings []string) (Confi
 		}
 		grade := strings.TrimSpace(values[0])
 		if grade == "" {
-			grade = "八年级"
+			grade = "示例年级"
 		}
 		headTeacher := strings.TrimSpace(values[3])
 		assignments := make([]CourseAssignment, 0, len(config.Subjects))
@@ -260,6 +315,111 @@ func configFromWorksheet(worksheet xlsxWorksheet, sharedStrings []string) (Confi
 		return Config{}, errors.New("未识别到班级数据")
 	}
 	return config, nil
+}
+
+func timeSlotsFromWorksheet(worksheet xlsxWorksheet, sharedStrings []string) ([]TimeSlot, error) {
+	rows, maxRow, err := worksheetRows(worksheet, sharedStrings)
+	if err != nil {
+		return nil, err
+	}
+	required := []string{"时段安排", "开始时间", "结束时间", "排课属性"}
+	headerRow := 0
+	columns := make(map[string]int, len(required))
+	for rowNumber := 1; rowNumber <= maxRow && rowNumber <= 20; rowNumber++ {
+		candidate := make(map[string]int, len(required))
+		for column, value := range rows[rowNumber] {
+			value = strings.TrimSpace(value)
+			for _, name := range required {
+				if value == name {
+					candidate[name] = column
+				}
+			}
+		}
+		if len(candidate) == len(required) {
+			headerRow = rowNumber
+			columns = candidate
+			break
+		}
+	}
+	if headerRow == 0 {
+		return nil, errors.New("未找到“时段安排、开始时间、结束时间、排课属性”字段标题")
+	}
+
+	slots := make([]TimeSlot, 0, maxRow-headerRow)
+	lessonIndex := 0
+	for rowNumber := headerRow + 1; rowNumber <= maxRow; rowNumber++ {
+		values := rows[rowNumber]
+		name := strings.TrimSpace(values[columns["时段安排"]])
+		startRaw := strings.TrimSpace(values[columns["开始时间"]])
+		endRaw := strings.TrimSpace(values[columns["结束时间"]])
+		property := strings.TrimSpace(values[columns["排课属性"]])
+		if name == "" && startRaw == "" && endRaw == "" && property == "" {
+			continue
+		}
+		if name == "" {
+			return nil, fmt.Errorf("第 %d 行时段安排不能为空", rowNumber)
+		}
+		start, err := parseImportedTime(startRaw)
+		if err != nil {
+			return nil, fmt.Errorf("第 %d 行开始时间无效: %w", rowNumber, err)
+		}
+		end, err := parseImportedTime(endRaw)
+		if err != nil {
+			return nil, fmt.Errorf("第 %d 行结束时间无效: %w", rowNumber, err)
+		}
+		var schedulable bool
+		switch property {
+		case "可排课":
+			schedulable = true
+		case "不排课":
+			schedulable = false
+		default:
+			return nil, fmt.Errorf("第 %d 行排课属性必须是“可排课”或“不排课”", rowNumber)
+		}
+		id := fmt.Sprintf("activity-%d", len(slots)+1)
+		if schedulable {
+			lessonIndex++
+			id = fmt.Sprintf("p%d", lessonIndex)
+		}
+		slots = append(slots, TimeSlot{ID: id, Name: name, Start: start, End: end, Schedulable: schedulable})
+	}
+	if len(slots) == 0 {
+		return nil, errors.New("未识别到任何作息时段")
+	}
+	return slots, nil
+}
+
+func parseImportedTime(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", errors.New("时间不能为空")
+	}
+	if strings.Contains(raw, ":") {
+		parts := strings.Split(raw, ":")
+		if len(parts) != 2 && len(parts) != 3 {
+			return "", fmt.Errorf("无法解析 %q", raw)
+		}
+		hour, hourErr := strconv.Atoi(strings.TrimSpace(parts[0]))
+		minute, minuteErr := strconv.Atoi(strings.TrimSpace(parts[1]))
+		second := 0
+		var secondErr error
+		if len(parts) == 3 {
+			second, secondErr = strconv.Atoi(strings.TrimSpace(parts[2]))
+		}
+		if hourErr != nil || minuteErr != nil || secondErr != nil || hour < 0 || hour > 23 || minute < 0 || minute > 59 || second != 0 {
+			return "", fmt.Errorf("无法解析 %q", raw)
+		}
+		return fmt.Sprintf("%02d:%02d", hour, minute), nil
+	}
+	value, err := strconv.ParseFloat(raw, 64)
+	if err != nil || value < 0 || value >= 1 {
+		return "", fmt.Errorf("无法解析 %q", raw)
+	}
+	minutes := int(math.Round(value * 24 * 60))
+	if minutes < 0 || minutes >= 24*60 {
+		return "", fmt.Errorf("无法解析 %q", raw)
+	}
+	return fmt.Sprintf("%02d:%02d", minutes/60, minutes%60), nil
 }
 
 func xlsxColumnIndex(reference string) (int, bool) {
@@ -358,13 +518,4 @@ func parseLessonValue(raw string) (int, int, error) {
 		return values[0], 0, nil
 	}
 	return values[0], values[1], nil
-}
-
-func isTeacherlessSubject(subjectID string) bool {
-	switch subjectID {
-	case "club", "labor", "safety":
-		return true
-	default:
-		return false
-	}
 }
