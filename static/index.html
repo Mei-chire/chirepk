@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#ffffff">
+  <meta name="description" content="Chirepk 初中自动排课管理台">
+  <title>Chirepk · 自动排课</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22><rect width=%2264%22 height=%2264%22 rx=%2214%22 fill=%22%235b8def%22/><path d=%22M18 19h28v27H18z%22 fill=%22white%22/><path d=%22M24 14v10M40 14v10M18 29h28%22 stroke=%22%23ff788a%22 stroke-width=%225%22/></svg>">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="brand-mark"><i data-lucide="calendar-days"></i></div>
+        <div><strong>Chirepk</strong><span>青排工作台</span></div>
+      </div>
+      <nav class="main-nav" aria-label="主导航">
+        <button class="nav-item active" data-view-target="overview"><i data-lucide="layout-dashboard"></i><span>总览</span></button>
+        <button class="nav-item" data-view-target="times"><i data-lucide="clock-3"></i><span>每日作息</span></button>
+        <button class="nav-item" data-view-target="assignments"><i data-lucide="book-user"></i><span>任课设置</span></button>
+        <button class="nav-item" data-view-target="teachers"><i data-lucide="users"></i><span>教师统计</span></button>
+        <button class="nav-item" data-view-target="generate"><i data-lucide="sparkles"></i><span>开始排课</span></button>
+        <button class="nav-item" data-view-target="records"><i data-lucide="archive"></i><span>排课记录</span></button>
+        <button class="nav-item" data-view-target="query"><i data-lucide="search-check"></i><span>教师查询</span></button>
+      </nav>
+      <div class="sidebar-foot">
+        <div class="storage-note"><span class="status-dot"></span><div><strong>内存模式</strong><small>重启后保留作息，任课待导入</small></div></div>
+      </div>
+    </aside>
+
+    <main class="main-area">
+      <header class="topbar">
+        <button class="icon-btn mobile-menu" id="mobileMenu" aria-label="打开导航"><i data-lucide="menu"></i></button>
+        <div class="page-identity"><span id="pageEyebrow">Chirepk</span><h1 id="pageTitle">排课总览</h1></div>
+        <div class="top-actions">
+          <span class="updated-at" id="updatedAt"></span>
+          <button class="primary-btn" data-view-target="generate"><i data-lucide="wand-sparkles"></i>开始排课</button>
+        </div>
+      </header>
+
+      <div class="content-area">
+        <section class="view active" data-view="overview">
+          <div class="welcome-band">
+            <div class="welcome-copy"><span class="section-kicker" id="semesterLabel"></span><h2>今天也让每一节课<br>各得其所。</h2><p id="schoolLabel"></p><div class="welcome-actions"><button class="primary-btn" id="importXlsxBtn"><i data-lucide="file-up"></i>导入任课 Excel</button><input id="importXlsxInput" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden><button class="secondary-btn" data-view-target="generate"><i data-lucide="play"></i>创建新课表</button></div></div>
+            <img src="/assets/campus-day.png" alt="明亮校园插画" class="campus-art">
+          </div>
+          <section class="workflow-section">
+            <div class="section-heading"><div><span class="section-kicker">五步完成</span><h2>排课流程</h2></div><span class="workflow-status" id="workflowStatusChip"></span></div>
+            <div class="workflow-track" id="workflowTrack"></div>
+          </section>
+          <div class="metric-grid" id="overviewMetrics"></div>
+          <div class="split-layout overview-lower">
+            <section class="plain-section"><div class="section-heading"><div><span class="section-kicker">最近任务</span><h2>排课记录</h2></div><button class="text-btn" data-view-target="records">查看全部<i data-lucide="arrow-right"></i></button></div><div id="overviewRuns" class="compact-run-list"></div></section>
+            <section class="plain-section"><div class="section-heading"><div><span class="section-kicker">基础配置</span><h2>本周结构</h2></div></div><div id="weekStructure" class="week-structure"></div></section>
+          </div>
+        </section>
+
+        <section class="view" data-view="times">
+          <div class="view-heading"><div><span class="section-kicker">固定五天</span><h2>每日作息</h2><p>当前作息会应用到星期一至星期五。</p></div><div class="heading-actions"><button class="secondary-btn" id="resetConfigBtn"><i data-lucide="rotate-ccw"></i>恢复默认</button><button class="secondary-btn" id="addTimeSlotBtn"><i data-lucide="plus"></i>新增安排</button><button class="primary-btn" id="saveTimesBtn"><i data-lucide="save"></i>保存作息</button></div></div>
+          <div class="table-shell">
+            <table class="data-table time-table"><thead><tr><th>安排</th><th>开始</th><th>结束</th><th>纳入排课</th><th>时段</th><th class="action-column">操作</th></tr></thead><tbody id="timeRows"></tbody></table>
+          </div>
+          <div class="inline-status" id="capacityStatus"></div>
+        </section>
+
+        <section class="view" data-view="assignments">
+          <div class="view-heading"><div><span class="section-kicker" id="assignmentScopeLabel">任课数据待导入</span><h2>任课信息设置</h2><p>教师姓名和课时结构可编辑。</p></div><div class="heading-actions"><button class="secondary-btn" id="addAssignmentBtn"><i data-lucide="plus"></i>新增课程</button><button class="primary-btn" id="saveAssignmentsBtn"><i data-lucide="save"></i>保存任课信息</button></div></div>
+          <div class="assignment-toolbar">
+            <div class="field grow"><span>选择班级</span><div class="class-picker" id="classPicker">
+              <button type="button" class="class-picker-trigger" id="classPickerTrigger" aria-haspopup="listbox" aria-expanded="false"><span class="class-picker-mark"><i data-lucide="school"></i></span><span class="class-picker-current"><strong id="classPickerName"></strong><small id="classPickerTeacher"></small></span><i data-lucide="chevron-down" class="class-picker-chevron"></i></button>
+              <div class="class-picker-menu" id="classPickerMenu" hidden>
+                <label class="class-picker-search"><i data-lucide="search"></i><input id="classPickerSearch" placeholder="搜索班级或班主任" autocomplete="off"></label>
+                <div class="class-picker-options" id="classPickerOptions" role="listbox" aria-label="班级列表"></div>
+              </div>
+            </div></div>
+            <label class="field"><span>班主任</span><input id="headTeacherInput" autocomplete="off"></label>
+            <div class="class-total"><div class="class-total-top"><span>周总课时</span><div><strong id="classWeeklyTotal">0</strong><small id="classWeeklyCapacity">/ 0</small></div></div><div class="class-total-track"><span id="classTotalBar"></span></div></div>
+          </div>
+          <div class="table-shell">
+            <table class="data-table assignment-table"><thead><tr><th>学科</th><th>任课教师</th><th>普通课时</th><th>连堂次数</th><th>实际课时</th><th class="action-column">操作</th></tr></thead><tbody id="assignmentRows"></tbody></table>
+          </div>
+        </section>
+
+        <section class="view" data-view="teachers">
+          <div class="view-heading"><div><span class="section-kicker">实时汇总</span><h2>教师课时统计</h2><p>按当前任课信息自动计算。</p></div><div class="summary-chip"><i data-lucide="users"></i><strong id="teacherCount">0</strong> 位教师</div></div>
+          <div class="filter-bar"><label class="search-field"><i data-lucide="search"></i><input id="teacherSearch" placeholder="搜索教师或班级"></label><div class="field compact"><span>学科</span><div class="smart-select" id="teacherSubjectFilter" data-icon="book-open" data-placeholder="全部学科" data-aria-label="筛选学科"></div></div></div>
+          <div class="table-shell">
+            <table class="data-table teacher-table"><thead><tr><th>教师</th><th>周总课时</th><th>课程</th><th>带班数量</th><th>带班班级</th></tr></thead><tbody id="teacherRows"></tbody></table>
+          </div>
+        </section>
+
+        <section class="view" data-view="generate">
+          <div class="view-heading"><div><span class="section-kicker">约束求解</span><h2>开始排课</h2><p>系统会自动生成候选课表并交叉检查教师时间。</p></div></div>
+          <div class="generate-layout">
+            <section class="generate-form">
+              <label class="field run-name-field"><span>任务名称</span><input id="runNameInput" maxlength="40" placeholder="例如：2026 秋季第一版"></label>
+              <div class="preflight" id="preflightPanel"></div>
+              <button class="launch-btn" id="startRunBtn"><span><i data-lucide="wand-sparkles"></i>生成全校课表</span><i data-lucide="arrow-up-right"></i></button>
+              <div class="progress-panel hidden" id="progressPanel">
+                <div class="progress-top"><span id="progressMessage">正在准备</span><strong id="progressValue">0%</strong></div>
+                <div class="progress-track"><div id="progressBar"></div></div>
+                <div class="progress-steps"><span>候选方案</span><span>教师协调</span><span>结果自检</span></div>
+              </div>
+            </section>
+            <section class="constraint-section"><span class="section-kicker">本次规则</span><h3>四项硬约束</h3><div class="constraint-list">
+              <div><i data-lucide="user-round-check"></i><span><strong>教师不冲突</strong><small>同一时段只能出现在一个班级</small></span></div>
+              <div><i data-lucide="panels-top-left"></i><span><strong>连堂在同一半天</strong><small>数学、英语连堂不跨午间</small></span></div>
+              <div><i data-lucide="coffee"></i><span><strong>活动时段留空</strong><small>午休、中餐、大课间、眼操不排课</small></span></div>
+              <div><i data-lucide="moon-star"></i><span><strong>第九节专项</strong><small>数学 2，语英物各 1</small></span></div>
+            </div></section>
+          </div>
+        </section>
+
+        <section class="view" data-view="records">
+          <div class="view-heading"><div><span class="section-kicker">内存记录</span><h2>排课记录</h2><p>每次生成都会形成一张独立记录卡片。</p></div><button class="primary-btn" data-view-target="generate"><i data-lucide="plus"></i>新建排课</button></div>
+          <div class="run-grid" id="runGrid"></div>
+        </section>
+
+        <section class="view" data-view="schedule">
+          <div class="view-heading"><div><button class="back-link" data-view-target="records"><i data-lucide="arrow-left"></i>返回排课记录</button><h2 id="scheduleTitle">课表详情</h2><p id="scheduleMeta"></p></div><div class="heading-actions"><div class="field compact"><span>班级</span><div class="smart-select" id="scheduleClassSelect" data-icon="school" data-placeholder="选择班级" data-search-placeholder="搜索班级或班主任" data-aria-label="选择课表班级"></div></div><button class="secondary-btn" id="exportScheduleBtn" disabled><i data-lucide="file-spreadsheet"></i>导出全部课表</button><span class="pass-badge" id="schedulePassBadge"><i data-lucide="badge-check"></i>自检通过</span></div></div>
+          <div class="schedule-scroll"><table class="schedule-table"><thead id="scheduleHead"></thead><tbody id="scheduleBody"></tbody></table></div>
+          <div class="validation-strip" id="validationStrip"></div>
+        </section>
+
+        <section class="view" data-view="query">
+          <div class="view-heading"><div><span class="section-kicker">教师行程</span><h2>教师课表查询</h2><p>查看教师每个时段所在班级与课程。</p></div><div class="conflict-badge" id="queryConflictBadge"><i data-lucide="shield-check"></i>冲突 0 项</div></div>
+          <div class="query-toolbar"><div class="field grow"><span>排课记录</span><div class="smart-select" id="queryRunSelect" data-icon="archive" data-placeholder="选择排课记录" data-search-placeholder="搜索排课记录" data-aria-label="选择排课记录"></div></div><div class="field grow"><span>教师</span><div class="smart-select" id="queryTeacherSelect" data-icon="user-round" data-placeholder="选择教师" data-search-placeholder="搜索教师或学科" data-aria-label="选择教师"></div></div></div>
+          <div class="teacher-week" id="teacherWeek"></div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <div class="toast-stack" id="toastStack" aria-live="polite"></div>
+  <dialog class="confirm-dialog" id="confirmDialog"><div class="dialog-icon"><i data-lucide="triangle-alert"></i></div><h3 id="confirmTitle">确认操作</h3><p id="confirmMessage"></p><div class="dialog-actions"><button class="secondary-btn" id="confirmCancel">取消</button><button class="danger-btn" id="confirmAccept">确认</button></div></dialog>
+  <dialog class="course-dialog" id="courseDialog">
+    <div class="course-dialog-heading"><div class="dialog-icon course-icon"><i data-lucide="book-plus"></i></div><div><h3>新增课程</h3><p>添加到当前班级的任课计划</p></div></div>
+    <form id="courseForm">
+      <label class="field"><span>课程名称</span><input id="newCourseName" maxlength="12" required placeholder="例如：信息技术"></label>
+      <label class="field"><span>任课教师</span><input id="newCourseTeacher" maxlength="20" required placeholder="输入教师姓名"></label>
+      <div class="course-hours"><label class="field"><span>普通课时</span><input id="newCourseSingles" type="number" min="0" max="45" value="0"></label><label class="field"><span>连堂次数</span><input id="newCourseDoubles" type="number" min="0" max="22" value="0"></label></div>
+      <div class="dialog-actions"><button type="button" class="secondary-btn" id="courseCancel">取消</button><button type="submit" class="primary-btn">确认新增</button></div>
+    </form>
+  </dialog>
+
+  <script src="/vendor/lucide.min.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

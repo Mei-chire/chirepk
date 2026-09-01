@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="340" viewBox="0 0 720 340">
+  <rect width="720" height="340" fill="#dff5ff"/>
+  <circle cx="622" cy="70" r="37" fill="#ffd15c"/>
+  <path d="M0 224C114 184 186 205 282 230C397 260 507 205 720 201V340H0Z" fill="#bde6d2"/>
+  <path d="M0 271C137 236 254 270 373 283C490 296 606 262 720 251V340H0Z" fill="#7fc9ad"/>
+  <rect x="230" y="102" width="316" height="164" rx="6" fill="#fffdf9"/>
+  <path d="M209 105L388 35L568 105Z" fill="#ff788a"/>
+  <rect x="346" y="172" width="82" height="94" rx="4" fill="#5b8def"/>
+  <circle cx="388" cy="212" r="24" fill="#eef6ff"/>
+  <path d="M388 194V213L401 220" fill="none" stroke="#5b8def" stroke-width="7" stroke-linecap="round"/>
+  <g fill="#9edaf0">
+    <rect x="258" y="132" width="51" height="43" rx="4"/><rect x="467" y="132" width="51" height="43" rx="4"/>
+    <rect x="258" y="194" width="51" height="43" rx="4"/><rect x="467" y="194" width="51" height="43" rx="4"/>
+  </g>
+  <g stroke="#ffffff" stroke-width="5"><path d="M283 132V175M258 153H309M492 132V175M467 153H518M283 194V237M258 215H309M492 194V237M467 215H518"/></g>
+  <g>
+    <rect x="91" y="224" width="12" height="58" rx="5" fill="#6d7654"/><circle cx="96" cy="210" r="42" fill="#69b979"/>
+    <rect x="626" y="222" width="12" height="62" rx="5" fill="#6d7654"/><circle cx="632" cy="207" r="45" fill="#55af70"/>
+  </g>
+  <g transform="translate(121 248)">
+    <circle cx="0" cy="-33" r="16" fill="#ffd4b8"/><path d="M-15-39Q0-60 16-39V-31H-15Z" fill="#4b4e60"/>
+    <path d="M-17-14Q0-24 17-14L23 24H-23Z" fill="#ffb84b"/><path d="M-8 24L-12 57M9 24L16 57" stroke="#4d628f" stroke-width="10" stroke-linecap="round"/>
+  </g>
+  <g transform="translate(588 250)">
+    <circle cx="0" cy="-33" r="16" fill="#f2c4a7"/><path d="M-16-38Q0-56 16-37L13-27H-14Z" fill="#483d50"/>
+    <path d="M-18-14Q0-25 18-14L22 23H-22Z" fill="#8d72df"/><path d="M-8 23L-14 55M9 23L15 55" stroke="#4d628f" stroke-width="10" stroke-linecap="round"/>
+  </g>
+  <path d="M52 65L145 99L105 112L88 149L52 65Z" fill="#ffffff" stroke="#5b8def" stroke-width="5" stroke-linejoin="round"/>
+  <path d="M68 78L106 111" stroke="#5b8def" stroke-width="5"/>
+  <g fill="#ffffff" opacity=".85"><ellipse cx="255" cy="42" rx="52" ry="17"/><ellipse cx="516" cy="48" rx="42" ry="14"/></g>
+</svg>
