@@ -9,8 +9,41 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22><rect width=%2264%22 height=%2264%22 rx=%2214%22 fill=%22%235b8def%22/><path d=%22M18 19h28v27H18z%22 fill=%22white%22/><path d=%22M24 14v10M40 14v10M18 29h28%22 stroke=%22%23ff788a%22 stroke-width=%225%22/></svg>">
   <link rel="stylesheet" href="/styles.css">
 </head>
-<body>
-  <div class="app-shell">
+<body class="auth-pending">
+  <section class="login-screen" id="loginScreen" aria-labelledby="loginTitle">
+    <div class="login-visual">
+      <div class="login-visual-copy">
+        <div class="login-brand-mark"><i data-lucide="calendar-days"></i></div>
+        <span>CHIREPK</span>
+        <h1>青排工作台</h1>
+        <p>初中课程安排管理</p>
+      </div>
+      <img src="/assets/campus-day.png" alt="校园教学楼与操场插画">
+    </div>
+    <div class="login-access">
+      <div class="login-panel">
+        <span class="section-kicker">管理员入口</span>
+        <h2 id="loginTitle">登录工作台</h2>
+        <p class="login-subtitle">请输入管理员账号继续。</p>
+        <form id="loginForm" class="login-form">
+          <label class="login-field" for="loginUsername">
+            <span>账号</span>
+            <span class="login-input"><i data-lucide="user-round"></i><input id="loginUsername" name="username" autocomplete="username" placeholder="请输入账号" required></span>
+          </label>
+          <label class="login-field" for="loginPassword">
+            <span>密码</span>
+            <span class="login-input"><i data-lucide="lock-keyhole"></i><input id="loginPassword" name="password" type="password" autocomplete="current-password" placeholder="请输入密码" required><button class="password-toggle" id="passwordToggle" type="button" aria-label="显示密码" title="显示密码"><i data-lucide="eye"></i></button></span>
+          </label>
+          <div class="login-message" id="loginMessage" role="alert" hidden></div>
+          <button class="login-submit" id="loginSubmit" type="submit"><span><i data-lucide="log-in"></i>登录</span><i data-lucide="arrow-right"></i></button>
+        </form>
+        <div class="login-security"><i data-lucide="shield-check"></i><span>管理员会话受登录验证保护</span></div>
+      </div>
+      <p class="login-footer">Chirepk · 青排工作台</p>
+    </div>
+  </section>
+
+  <div class="app-shell" id="appShell">
     <aside class="sidebar" id="sidebar">
       <div class="brand">
         <div class="brand-mark"><i data-lucide="calendar-days"></i></div>
@@ -33,10 +66,11 @@
     <main class="main-area">
       <header class="topbar">
         <button class="icon-btn mobile-menu" id="mobileMenu" aria-label="打开导航"><i data-lucide="menu"></i></button>
-        <div class="page-identity"><span id="pageEyebrow">Chirepk</span><h1 id="pageTitle">排课总览</h1></div>
+        <div class="page-identity"><span id="pageEyebrow">Chirepk</span><h1 id="pageTitle">排课总览</h1><small class="updated-at" id="updatedAt"></small></div>
         <div class="top-actions">
-          <span class="updated-at" id="updatedAt"></span>
           <button class="primary-btn" data-view-target="generate"><i data-lucide="wand-sparkles"></i>开始排课</button>
+          <div class="session-user"><span class="session-avatar"><i data-lucide="user-round"></i></span><span class="session-user-copy"><small>当前账号</small><strong id="currentUsername">已登录用户</strong></span></div>
+          <button class="secondary-btn logout-btn" id="logoutBtn" type="button" title="退出登录"><i data-lucide="log-out"></i><span>退出登录</span></button>
         </div>
       </header>
 
@@ -58,7 +92,7 @@
         </section>
 
         <section class="view" data-view="times">
-          <div class="view-heading"><div><span class="section-kicker">固定五天</span><h2>每日作息</h2><p>当前作息会应用到星期一至星期五。</p></div><div class="heading-actions"><button class="secondary-btn" id="resetConfigBtn"><i data-lucide="rotate-ccw"></i>恢复默认</button><button class="secondary-btn" id="addTimeSlotBtn"><i data-lucide="plus"></i>新增安排</button><button class="primary-btn" id="saveTimesBtn"><i data-lucide="save"></i>保存作息</button></div></div>
+          <div class="view-heading"><div><span class="section-kicker">固定五天</span><h2>每日作息</h2><p>当前作息会应用到星期一至星期五。</p></div><div class="heading-actions"><button class="secondary-btn" id="resetConfigBtn"><i data-lucide="trash-2"></i>清空配置</button><button class="secondary-btn" id="addTimeSlotBtn"><i data-lucide="plus"></i>新增安排</button><button class="primary-btn" id="saveTimesBtn"><i data-lucide="save"></i>保存作息</button></div></div>
           <div class="table-shell">
             <table class="data-table time-table"><thead><tr><th>安排</th><th>开始</th><th>结束</th><th>纳入排课</th><th>时段</th><th class="action-column">操作</th></tr></thead><tbody id="timeRows"></tbody></table>
           </div>

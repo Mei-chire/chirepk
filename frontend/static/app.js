@@ -1,4 +1,5 @@
 const state = {
+  username: "",
   config: null,
   teachers: [],
   runs: [],
@@ -45,6 +46,7 @@ async function api(path, options = {}) {
   });
   if (response.status === 204) return null;
   const data = await response.json().catch(() => ({}));
+  if (response.status === 401) showLogin(data.error || "登录状态已失效，请重新登录");
   if (!response.ok) throw new Error(data.error || `请求失败 (${response.status})`);
   return data;
 }
@@ -344,6 +346,12 @@ function renderWorkflow() {
 }
 
 function renderTimes() {
+  if (!state.config.timeSlots.length) {
+    $("#timeRows").innerHTML = `<tr><td colspan="6">${emptyState("calendar-x", "请先导入包含每日作息的 Excel，或新增安排")}</td></tr>`;
+    updateCapacity();
+    refreshIcons();
+    return;
+  }
   $("#timeRows").innerHTML = state.config.timeSlots.map((slot, index) => `<tr>
     <td><input data-time-index="${index}" data-time-field="name" value="${escapeHTML(slot.name)}" aria-label="安排名称"></td>
     <td><input type="time" data-time-index="${index}" data-time-field="start" value="${escapeHTML(slot.start)}" aria-label="开始时间"></td>
@@ -725,6 +733,7 @@ async function exportAllSchedules() {
     const response = await fetch(`/api/runs/${encodeURIComponent(state.currentRunId)}/export.xlsx`);
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
+      if (response.status === 401) showLogin(data.error || "登录状态已失效，请重新登录");
       throw new Error(data.error || `导出失败 (${response.status})`);
     }
     const blob = await response.blob();
@@ -856,6 +865,7 @@ async function importXlsxFile(file) {
   try {
     const response = await fetch("/api/import/xlsx", { method: "POST", body: form });
     const data = await response.json().catch(() => ({}));
+    if (response.status === 401) showLogin(data.error || "登录状态已失效，请重新登录");
     if (!response.ok) throw new Error(data.error || ("导入失败 (" + response.status + ")"));
     [state.config, state.teachers, state.preflight] = await Promise.all([
       api("/api/config"), api("/api/teachers"), api("/api/preflight"),
@@ -993,7 +1003,7 @@ function addMinutes(value, minutes) {
 
 function addTimeSlot() {
   const last = state.config.timeSlots.at(-1);
-  const start = last?.end || "18:10";
+  const start = last?.end || "08:00";
   state.config.timeSlots.push({
     id: `custom-slot-${Date.now().toString(36)}`,
     name: "新安排",
@@ -1091,6 +1101,118 @@ async function deleteAssignment(index) {
   toast(`${subject.name}已移除，保存后生效`);
 }
 
+function setLoginMessage(message = "", type = "error") {
+  const element = $("#loginMessage");
+  element.textContent = message;
+  element.hidden = !message;
+  element.classList.toggle("success", type === "success");
+}
+
+function showLogin(message = "", type = "error") {
+  clearTimeout(state.pollTimer);
+  state.pollTimer = null;
+  state.username = "";
+  document.body.classList.remove("auth-pending", "auth-authenticated");
+  document.body.classList.add("auth-guest");
+  $("#appShell").setAttribute("aria-hidden", "true");
+  $("#loginScreen").removeAttribute("aria-hidden");
+  setLoginMessage(message, type);
+  $$("dialog[open]").forEach((dialog) => dialog.close());
+  requestAnimationFrame(() => $("#loginUsername").focus());
+}
+
+function showApplication(username) {
+  state.username = username || "已登录用户";
+  $("#currentUsername").textContent = state.username;
+  document.body.classList.remove("auth-pending", "auth-guest");
+  document.body.classList.add("auth-authenticated");
+  $("#loginScreen").setAttribute("aria-hidden", "true");
+  $("#appShell").removeAttribute("aria-hidden");
+  setLoginMessage();
+}
+
+function setLoginBusy(busy) {
+  const button = $("#loginSubmit");
+  button.disabled = busy;
+  button.innerHTML = busy
+    ? `<span><i data-lucide="loader-circle"></i>正在登录</span><i data-lucide="arrow-right"></i>`
+    : `<span><i data-lucide="log-in"></i>登录</span><i data-lucide="arrow-right"></i>`;
+  refreshIcons();
+}
+
+async function loadApplication() {
+  [state.config, state.teachers, state.preflight] = await Promise.all([
+    api("/api/config"), api("/api/teachers"), api("/api/preflight"),
+  ]);
+  state.currentClassId = state.config.classes[0]?.id || "";
+  await loadRuns();
+  renderOverview();
+  renderTimes();
+  renderAssignments();
+  renderTeachers();
+  renderRuns();
+  await refreshPreflight();
+  navigate("overview");
+}
+
+async function login(event) {
+  event.preventDefault();
+  const username = $("#loginUsername").value;
+  const password = $("#loginPassword").value;
+  setLoginMessage();
+  setLoginBusy(true);
+  try {
+    const response = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || "登录失败，请重试");
+    await loadApplication();
+    showApplication(data.username);
+    $("#loginPassword").value = "";
+  } catch (error) {
+    showLogin(error.message);
+    $("#loginPassword").select();
+  } finally {
+    setLoginBusy(false);
+  }
+}
+
+async function logout() {
+  const button = $("#logoutBtn");
+  button.disabled = true;
+  try {
+    await fetch("/api/auth/logout", { method: "POST" });
+  } finally {
+    state.config = null;
+    state.teachers = [];
+    state.runs = [];
+    state.preflight = null;
+    state.runDetails.clear();
+    $("#loginForm").reset();
+    showLogin("已退出当前账号", "success");
+    button.disabled = false;
+  }
+}
+
+function bindAuthEvents() {
+  $("#loginForm").addEventListener("submit", login);
+  $("#logoutBtn").addEventListener("click", logout);
+  $("#passwordToggle").addEventListener("click", () => {
+    const input = $("#loginPassword");
+    const visible = input.type === "text";
+    input.type = visible ? "password" : "text";
+    const button = $("#passwordToggle");
+    button.setAttribute("aria-label", visible ? "显示密码" : "隐藏密码");
+    button.setAttribute("title", visible ? "显示密码" : "隐藏密码");
+    button.innerHTML = `<i data-lucide="${visible ? "eye" : "eye-off"}"></i>`;
+    refreshIcons();
+    input.focus();
+  });
+}
+
 function bindEvents() {
   document.addEventListener("click", (event) => {
     const target = event.target.closest("[data-view-target]");
@@ -1123,7 +1245,7 @@ function bindEvents() {
   });
   $("#startRunBtn").addEventListener("click", startRun);
   $("#resetConfigBtn").addEventListener("click", async () => {
-    if (!await confirmAction("恢复默认配置", "作息会恢复为内置默认值，任课设置和教师统计会清空。")) return;
+    if (!await confirmAction("清空当前配置", "每日作息、任课设置和教师统计都会清空，之后需要重新导入 Excel。")) return;
     try {
       state.config = await api("/api/config/reset", { method: "POST", body: "{}" });
       state.teachers = await api("/api/teachers");
@@ -1134,7 +1256,7 @@ function bindEvents() {
       state.pollTimer = null;
       state.preflight = await api("/api/preflight");
       renderTimes(); renderAssignments(); renderTeachers(); renderOverview(); renderWorkflow();
-      toast("已恢复默认配置");
+      toast("配置已清空，请重新导入 Excel");
     } catch (error) { toast(error.message, "error"); }
   });
   $("#timeRows").addEventListener("input", (event) => {
@@ -1225,23 +1347,20 @@ function bindEvents() {
 }
 
 async function init() {
+  bindAuthEvents();
   bindEvents();
+  refreshIcons();
   try {
-    [state.config, state.teachers, state.preflight] = await Promise.all([
-      api("/api/config"), api("/api/teachers"), api("/api/preflight"),
-    ]);
-    state.currentClassId = state.config.classes[0]?.id || "";
-    await loadRuns();
-    renderOverview();
-    renderTimes();
-    renderAssignments();
-    renderTeachers();
-    renderRuns();
-    await refreshPreflight();
-    navigate("overview");
+    const response = await fetch("/api/auth/session");
+    if (!response.ok) {
+      showLogin();
+      return;
+    }
+    const session = await response.json();
+    await loadApplication();
+    showApplication(session.username);
   } catch (error) {
-    document.querySelector(".content-area").innerHTML = emptyState("server-off", `服务加载失败：${error.message}`);
-    refreshIcons();
+    showLogin(`服务加载失败：${error.message}`);
   }
 }
 

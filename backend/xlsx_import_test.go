@@ -48,6 +48,9 @@ func TestMemoryStoreStartsWithEmptyTeacherData(t *testing.T) {
 	if stats := teacherStats(config); len(stats) != 0 {
 		t.Fatalf("default teacher stats = %d, want empty", len(stats))
 	}
+	if len(config.TimeSlots) != 0 {
+		t.Fatalf("blank config time slots = %d, want empty", len(config.TimeSlots))
+	}
 	for _, class := range config.Classes {
 		if class.HeadTeacher != "" || len(class.Assignments) != 0 {
 			t.Fatalf("class %s still has teacher data: %+v", class.Name, class)

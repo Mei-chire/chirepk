@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"chirepk/backend/internal/application"
@@ -25,8 +26,23 @@ func main() {
 	storage := store.NewMemoryStore()
 	service := application.NewService(storage)
 	api := httpapi.NewAPI(service)
+	auth := httpapi.NewAuthenticator(httpapi.AuthConfig{
+		Local: httpapi.LocalAuthConfig{
+			Username: os.Getenv("CHIREPK_ADMIN_USERNAME"),
+			Password: os.Getenv("CHIREPK_ADMIN_PASSWORD"),
+		},
+		Feishu: httpapi.FeishuAuthConfig{
+			AppID:       os.Getenv("FEISHU_APP_ID"),
+			AppSecret:   os.Getenv("FEISHU_APP_SECRET"),
+			RedirectURL: os.Getenv("FEISHU_REDIRECT_URL"),
+		},
+		SecureCookies: strings.EqualFold(strings.TrimSpace(os.Getenv("CHIREPK_SECURE_COOKIES")), "true"),
+	})
 	mux := http.NewServeMux()
-	api.Register(mux)
+	auth.Register(mux)
+	apiMux := http.NewServeMux()
+	api.Register(apiMux)
+	mux.Handle("/api/", auth.Require(apiMux))
 	assets, err := fs.Sub(frontend.Files, "static")
 	if err != nil {
 		log.Fatal(err)

@@ -80,10 +80,12 @@ func DefaultConfig() Config {
 	}
 }
 
-// BlankConfig keeps reusable timetable and subject definitions while waiting
-// for the user to import the authoritative teacher workbook.
+// BlankConfig keeps only reusable subject and class scaffolding while waiting
+// for the authoritative workbook. Timetable data must come from an import or
+// an explicit manual edit.
 func BlankConfig() Config {
 	config := DefaultConfig()
+	config.TimeSlots = []TimeSlot{}
 	for index := range config.Classes {
 		config.Classes[index].HeadTeacher = ""
 		config.Classes[index].Assignments = make([]CourseAssignment, 0)
